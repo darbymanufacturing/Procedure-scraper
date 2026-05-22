@@ -20,7 +20,7 @@ class AutoZoneSource(Source):
     _SEARCH_URL = "https://www.autozone.com/diy/{make}/{model}/year-{year}"
     _ALT_SEARCH = "https://www.autozone.com/repairguides/search?year={year}&make={make}&model={model}"
 
-    def search(self, make: str, model: str, year: int) -> List[ManualResult]:
+    def search(self, make: str, model: str, year: int, task: str = "") -> List[ManualResult]:
         results: List[ManualResult] = []
         try:
             make_slug = make.lower().replace(" ", "-")

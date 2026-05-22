@@ -28,6 +28,7 @@ def search_manuals(
     make: str,
     model: str,
     year: int,
+    task: str = "",
     top_n: int = 5,
     all_results: bool = False,
 ) -> List[ManualResult]:
@@ -37,6 +38,8 @@ def search_manuals(
         make: Vehicle make, e.g. "Toyota"
         model: Vehicle model, e.g. "Camry"
         year: Four-digit model year, e.g. 2018
+        task: Optional repair task, e.g. "clutch replacement". Used to refine
+              source queries and demote results that won't cover the task.
         top_n: Maximum results to return (ignored when all_results=True)
         all_results: If True, return every result from every source.
 
@@ -49,7 +52,7 @@ def search_manuals(
     all_found: List[ManualResult] = []
 
     def _run(source: Source) -> List[ManualResult]:
-        return source.search(make, model, year)
+        return source.search(make, model, year, task)
 
     with ThreadPoolExecutor(max_workers=len(sources)) as pool:
         futures = {pool.submit(_run, s): s for s in sources}

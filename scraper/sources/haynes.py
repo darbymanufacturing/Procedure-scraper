@@ -18,7 +18,7 @@ class HaynesSource(Source):
 
     _SEARCH_URL = "https://haynes.com/en-us/search?q={query}"
 
-    def search(self, make: str, model: str, year: int) -> List[ManualResult]:
+    def search(self, make: str, model: str, year: int, task: str = "") -> List[ManualResult]:
         results: List[ManualResult] = []
         try:
             query = quote_plus(f"{year} {make} {model}")

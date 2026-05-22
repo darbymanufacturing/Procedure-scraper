@@ -2,6 +2,7 @@
 
 Usage:
     python -m scraper --make Toyota --model Camry --year 2018
+    python -m scraper --make Honda --model Civic --year 2001 --task "clutch replacement"
     python -m scraper --make Ford --model Mustang --year 1989 --all
     python -m scraper --make Saab --model 9-5 --year 2003 --top 10 --json
 """
@@ -24,6 +25,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--make", "-m", required=True, help='Vehicle make, e.g. "Toyota"')
     p.add_argument("--model", "-M", required=True, help='Vehicle model, e.g. "Camry"')
     p.add_argument("--year", "-y", required=True, type=int, help="Four-digit model year, e.g. 2018")
+    p.add_argument(
+        "--task",
+        "-t",
+        default="",
+        help=(
+            'Repair task you want to perform, e.g. "clutch replacement" or "oil change". '
+            "Used to rank results appropriately — e.g. owner's manuals are demoted for "
+            "mechanical jobs since they don't contain workshop procedures."
+        ),
+    )
     p.add_argument(
         "--top",
         "-n",
@@ -56,8 +67,9 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Error: year {args.year} looks wrong. Use a four-digit year.", file=sys.stderr)
         sys.exit(1)
 
+    task_label = f" — task: {args.task}" if args.task else ""
     print(
-        f"\n🔍 Searching for repair manuals: {args.year} {args.make} {args.model} …\n",
+        f"\n🔍 Searching for repair manuals: {args.year} {args.make} {args.model}{task_label} …\n",
         file=sys.stderr,
     )
 
@@ -65,6 +77,7 @@ def main(argv: list[str] | None = None) -> None:
         make=args.make,
         model=args.model,
         year=args.year,
+        task=args.task,
         top_n=args.top,
         all_results=getattr(args, "all"),
     )

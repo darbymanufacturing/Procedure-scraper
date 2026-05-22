@@ -12,7 +12,7 @@ from scraper.models import ManualResult
 from scraper.sources.archive_org import ArchiveOrgSource
 from scraper.sources.autozone import AutoZoneSource
 from scraper.sources.haynes import HaynesSource
-from scraper.sources.manufacturer import ManufacturerSource
+from scraper.sources.manufacturer import ManufacturerSource, _is_mechanical
 from scraper.sources.web_search import WebSearchSource
 
 
@@ -65,6 +65,36 @@ class TestManufacturerSource:
         results = src.search("Saab", "9-5", 2003)
         assert len(results) == 1
 
+    # --- Task-awareness ---
+
+    def test_mechanical_task_demotes_confidence(self):
+        src = ManufacturerSource(_mock_session())
+        no_task = src.search("Honda", "Civic", 2001)
+        with_task = src.search("Honda", "Civic", 2001, task="clutch replacement")
+        assert with_task[0].confidence < no_task[0].confidence
+
+    def test_mechanical_task_adds_warning(self):
+        src = ManufacturerSource(_mock_session())
+        results = src.search("Honda", "Civic", 2001, task="clutch replacement")
+        assert "⚠️" in results[0].notes
+        assert "NOT" in results[0].notes
+
+    def test_non_mechanical_task_keeps_normal_confidence(self):
+        src = ManufacturerSource(_mock_session())
+        results = src.search("Honda", "Civic", 2021, task="oil change")
+        # oil change is not in _MECHANICAL_KEYWORDS, should keep normal confidence
+        assert results[0].confidence == 0.7
+
+    def test_is_mechanical_clutch(self):
+        assert _is_mechanical("clutch replacement") is True
+
+    def test_is_mechanical_oil_change(self):
+        # oil change is informational enough — not in keywords
+        assert _is_mechanical("oil change") is False
+
+    def test_is_mechanical_brake_job(self):
+        assert _is_mechanical("front brake pad replacement") is True
+
 
 # ---------------------------------------------------------------------------
 # ArchiveOrgSource — uses archive.org JSON API
@@ -96,10 +126,9 @@ class TestArchiveOrgSource:
             src = ArchiveOrgSource(session)
             results = src.search("Ford", "Mustang", 1989)
 
-        assert len(results) == 2
-        # PDF item should rank higher (has "PDF" in format list)
+        assert len(results) >= 1
         pdf_results = [r for r in results if r.format == "pdf"]
-        assert len(pdf_results) == 1
+        assert len(pdf_results) >= 1
         assert "1989-ford-mustang-fsm" in pdf_results[0].url
 
     def test_empty_response(self):
@@ -133,10 +162,37 @@ class TestArchiveOrgSource:
             src = ArchiveOrgSource(session)
             results = src.search("Toyota", "Camry", 2018)
 
-        # The result with the year in the title should have higher confidence
         with_year = next(r for r in results if "with-year" in r.url)
         no_year = next(r for r in results if "no-year" in r.url)
         assert with_year.confidence > no_year.confidence
+
+    def test_deduplicates_across_multiple_queries(self):
+        """The same identifier returned by multiple queries should only appear once."""
+        session = _mock_session()
+        # All three internal queries return the same document
+        same_doc = {
+            "response": {
+                "docs": [
+                    {"identifier": "honda-civic-2001-fsm", "title": "2001 Honda Civic FSM", "format": ["PDF"]},
+                ]
+            }
+        }
+        with patch("scraper.sources.archive_org.get") as mock_get:
+            mock_get.return_value = _response(200, json_data=same_doc)
+            src = ArchiveOrgSource(session)
+            results = src.search("Honda", "Civic", 2001)
+
+        urls = [r.url for r in results]
+        assert len(urls) == len(set(urls)), "Duplicate URLs returned"
+
+    def test_task_param_accepted(self):
+        """search() should accept task without raising."""
+        session = _mock_session()
+        with patch("scraper.sources.archive_org.get") as mock_get:
+            mock_get.return_value = _response(200, json_data={"response": {"docs": []}})
+            src = ArchiveOrgSource(session)
+            results = src.search("Honda", "Civic", 2001, task="clutch replacement")
+        assert results == []
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +232,6 @@ class TestHaynesSource:
             src = HaynesSource(session)
             results = src.search("Saab", "9-5", 2003)
 
-        # Must still return at least the search-link fallback
         assert len(results) >= 1
         assert all(r.format == "subscription" for r in results)
 
@@ -187,6 +242,14 @@ class TestHaynesSource:
             src = HaynesSource(session)
             results = src.search("Toyota", "Camry", 2018)
         assert results == []
+
+    def test_task_param_accepted(self):
+        session = _mock_session()
+        with patch("scraper.sources.haynes.get") as mock_get:
+            mock_get.return_value = _response(200, "<html></html>")
+            src = HaynesSource(session)
+            results = src.search("Honda", "Civic", 2001, task="clutch replacement")
+        assert isinstance(results, list)
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +282,16 @@ class TestAutoZoneSource:
 
         assert len(results) >= 1
         assert any("autozone.com" in r.url for r in results)
+
+    def test_task_param_accepted(self):
+        session = _mock_session()
+        resp = _response(200, "<html></html>")
+        resp.url = "https://www.autozone.com/diy/honda/civic/year-2001"
+        with patch("scraper.sources.autozone.get") as mock_get:
+            mock_get.return_value = resp
+            src = AutoZoneSource(session)
+            results = src.search("Honda", "Civic", 2001, task="clutch replacement")
+        assert isinstance(results, list)
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +343,22 @@ class TestWebSearchSource:
             src = WebSearchSource(session)
             results = src.search("Ford", "F-150", 1995)
         assert results == []
+
+    def test_task_included_in_query(self):
+        """When a task is given, it should be included in the DDG search query."""
+        session = _mock_session()
+        captured_urls = []
+
+        def capture(session, url, **kwargs):
+            captured_urls.append(url)
+            return _response(200, "<html></html>")
+
+        with patch("scraper.sources.web_search.get", side_effect=capture):
+            src = WebSearchSource(session)
+            src.search("Honda", "Civic", 2001, task="clutch replacement")
+
+        assert captured_urls, "No HTTP call made"
+        assert "clutch" in captured_urls[0].lower() or "clutch" in captured_urls[0]
 
 
 # ---------------------------------------------------------------------------

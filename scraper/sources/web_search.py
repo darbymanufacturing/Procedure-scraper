@@ -84,10 +84,11 @@ class WebSearchSource(Source):
 
     _DDG_URL = "https://html.duckduckgo.com/html/?q={query}"
 
-    def search(self, make: str, model: str, year: int) -> List[ManualResult]:
+    def search(self, make: str, model: str, year: int, task: str = "") -> List[ManualResult]:
         results: List[ManualResult] = []
         try:
-            raw_query = f'{year} {make} {model} service manual repair guide filetype:pdf'
+            task_part = f" {task}" if task.strip() else " service manual repair guide"
+            raw_query = f'{year} {make} {model}{task_part} filetype:pdf'
             query = quote_plus(raw_query)
             url = self._DDG_URL.format(query=query)
 

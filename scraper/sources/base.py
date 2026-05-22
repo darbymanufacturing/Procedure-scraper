@@ -19,8 +19,15 @@ class Source(ABC):
         self.session = session
 
     @abstractmethod
-    def search(self, make: str, model: str, year: int) -> List[ManualResult]:
+    def search(self, make: str, model: str, year: int, task: str = "") -> List[ManualResult]:
         """Search for manuals for the given vehicle.
+
+        Args:
+            make: Vehicle make, e.g. "Toyota"
+            model: Vehicle model, e.g. "Civic"
+            year: Four-digit model year
+            task: Optional repair task description, e.g. "clutch replacement".
+                  Sources use this to refine queries and rank results.
 
         Returns a (possibly empty) list of ManualResult objects.
         Must not raise — catch exceptions and return [] instead.

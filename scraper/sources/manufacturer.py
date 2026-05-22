@@ -1,18 +1,19 @@
 """Official manufacturer owner-manual portals.
 
 These portals provide free owner's manuals directly from the automaker.
-They are lighter than a full FSM but are 100% legitimate and always available.
+For mechanical repair tasks (clutch, engine, brakes, etc.) the confidence
+score is automatically reduced because owner's manuals don't contain
+workshop/repair procedures — a service manual is needed instead.
 """
 
 from __future__ import annotations
 
-from typing import List
+from typing import FrozenSet, List
 
 from scraper.models import ManualResult
 from scraper.sources.base import Source
 
-# Maps make (lowercase) → (portal_name, portal_url_template)
-# {year}, {make}, {model} placeholders are replaced if present.
+# Maps make (lowercase) → (portal_name, portal_url, notes)
 _MANUFACTURER_PORTALS = {
     "toyota": (
         "Toyota Owners Portal",
@@ -176,25 +177,62 @@ _MANUFACTURER_PORTALS = {
     ),
 }
 
+# Keywords that indicate a hands-on mechanical repair task.
+# Owner's manuals don't cover these — only FSMs/workshop manuals do.
+_MECHANICAL_KEYWORDS: FrozenSet[str] = frozenset({
+    "clutch", "transmission", "gearbox", "engine", "timing belt", "timing chain",
+    "head gasket", "brake", "brakes", "caliper", "rotor", "pad", "pads",
+    "suspension", "alternator", "starter", "water pump", "fuel pump",
+    "radiator", "thermostat", "cv joint", "axle", "differential",
+    "valve", "piston", "camshaft", "crankshaft", "turbo", "supercharger",
+    "exhaust", "catalytic", "ignition", "spark plug", "injector", "carburetor",
+    "strut", "shock", "ball joint", "tie rod", "steering rack", "power steering",
+    "compressor", "serpentine belt", "drive belt", "flywheel", "pressure plate",
+    "throw-out bearing", "release bearing", "oil seal", "gasket", "replace",
+    "replacement", "rebuild", "overhaul", "disassemble", "repair",
+})
+
+
+def _is_mechanical(task: str) -> bool:
+    """Return True if the task description implies a hands-on mechanical repair."""
+    task_lower = task.lower()
+    return any(kw in task_lower for kw in _MECHANICAL_KEYWORDS)
+
 
 class ManufacturerSource(Source):
     name = "Manufacturer Portal"
 
-    def search(self, make: str, model: str, year: int) -> List[ManualResult]:
+    def search(self, make: str, model: str, year: int, task: str = "") -> List[ManualResult]:
         results: List[ManualResult] = []
         try:
             make_key = make.strip().lower()
             if make_key not in _MANUFACTURER_PORTALS:
                 return results
 
-            portal_name, portal_url, notes = _MANUFACTURER_PORTALS[make_key]
+            portal_name, portal_url, base_notes = _MANUFACTURER_PORTALS[make_key]
+
+            mechanical = _is_mechanical(task)
+
+            if mechanical:
+                # Owner's manuals don't contain workshop repair procedures.
+                # Demote the result so service manual sources rank above it.
+                confidence = 0.25
+                notes = (
+                    f"{base_notes}. "
+                    "⚠️  Owner's manuals do NOT cover mechanical repairs like this — "
+                    "use the Haynes, AutoZone, or archive.org results above instead."
+                )
+            else:
+                confidence = 0.7
+                notes = base_notes
+
             results.append(
                 ManualResult(
                     title=f"{portal_name}: {year} {make} {model} Owner's Manual",
                     source=self.name,
                     url=portal_url,
                     format="pdf",
-                    confidence=0.7,
+                    confidence=confidence,
                     notes=notes,
                 )
             )
